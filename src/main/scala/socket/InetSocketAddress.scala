@@ -4,7 +4,7 @@ import zio.*
 
 import scala.scalanative.libc
 import scala.scalanative.libc.string.{strerror, strlen}
-import scala.scalanative.libc.{stdlib}
+import scala.scalanative.libc.stdlib
 import scala.scalanative.posix.netinet.in.sockaddr_in
 import scala.scalanative.posix.sys.socket
 import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
@@ -19,6 +19,32 @@ class InetSocketAddress private(underlying: sockaddr_in):
 
   private[socket] def asSocketAddressPointer: Ptr[sockaddr] = underlying.toPtr.asInstanceOf[Ptr[sockaddr]]
 
+/**
+ *
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+
+void
+init_sockaddr (struct sockaddr_in *name,
+               const char *hostname,
+               uint16_t port)
+{
+  struct hostent *hostinfo;
+
+  name->sin_family = AF_INET;
+  name->sin_port = htons (port);
+  hostinfo = gethostbyname (hostname);
+  if (hostinfo == NULL)
+    {
+      fprintf (stderr, "Unknown host %s.\n", hostname);
+      exit (EXIT_FAILURE);
+    }
+  name->sin_addr = *(struct in_addr *) hostinfo->h_addr;
+}
+ */
 object InetSocketAddress:
 
   def fromHostAndPort(host: String, port: Int) = ZIO.attemptBlocking {
