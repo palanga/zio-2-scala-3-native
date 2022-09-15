@@ -8,7 +8,7 @@ import scala.scalanative.posix.netinet.in.sockaddr_in
 import scala.scalanative.posix.sys.socket
 import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
 import scala.scalanative.posix.unistd
-import scala.scalanative.unsafe.{CString, Ptr, Zone, sizeof, stackalloc, toCString}
+import scala.scalanative.unsafe.{CString, Ptr, Zone, sizeof, stackalloc, toCString, fromCString}
 import scala.scalanative.unsigned.UInt
 
 object Main extends ZIOAppDefault :
@@ -53,7 +53,8 @@ class InetStreamSocket private(fileDescriptor: Int):
         import scalanative.libc.StdioHelpers
         libc.stdio.printf(e)
 //        exit(EXIT_FAILURE)
-        throw Exception(s"Cannot bind to address $address: socket.bind errno ${libc.errno.errno}")
+        val estring = fromCString(e)
+        throw Exception(s"Cannot bind to address $address: socket.bind errno ${libc.errno.errno} message: $estring")
       else ()
     }
 
