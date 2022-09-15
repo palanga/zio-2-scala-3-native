@@ -18,9 +18,12 @@ object Main extends ZIOAppDefault :
       address = InetSocketAddress.fromHostAndPort("harcodeado abajo", port)
       _ <- server.bind(address).debug
       _ <- server.listen.debug
-      socket2 <- server.accept.debug
-      _ <- socket2.write("harcodeado abajo").debug
+      client <- server.accept.debug
+      _ <- client.writeLine("que onda soquete").debug
+      _ <- client.write("chau ").debug
+      _ <- client.writeLine("soquete").debug
       _ <- Console.printLine("Hola ZIO 2 en Scala 3 native")
+      _ <- client.close.debug
       _ <- server.close.debug
     yield ()
 
@@ -50,15 +53,15 @@ class InetStreamSocket private(fileDescriptor: Int):
       .flatMap(InetStreamSocket.fromFileDescriptor)
 
   def write(input: String) =
-    import scalanative.unsafe.CQuote
-    import scalanative.unsigned.UnsignedRichInt
     ZIO.attemptBlocking {
-      Zone { implicit z =>
-        val text: CString = toCString(input)
+      Zone { implicit zone =>
+        val text = toCString(input)
         val len = strlen(text)
         unistd.write(fileDescriptor, text, len)
       }
     }
+
+  def writeLine(input: String) = write(input + '\n')
 
   def connect(address: InetSocketAddress) =
     ZIO.attemptBlocking {
