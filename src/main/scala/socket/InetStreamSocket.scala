@@ -12,67 +12,40 @@ import scala.scalanative.unsafe.{Zone, fromCString, sizeof, toCString}
 class InetStreamSocket private(fileDescriptor: Int):
 
   def close =
-    ZIO.attemptBlocking {
-      val res = unistd.close(fileDescriptor)
-      if res < 0
-      then throw Exception(s"Socket closing impossible. File descriptor: $fileDescriptor")
-      else ()
-    }
+    common.attemptBlocking(unistd.close(fileDescriptor), s"File descriptor number $fileDescriptor.").as(fileDescriptor)
 
   def bind(address: InetSocketAddress) =
-    ZIO.attemptBlocking {
-      val res = socket.bind(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf)
-      if res < 0
-      then
-        import scalanative.unsafe.CQuote
-        libc.stdio.perror(c"bind")
-        val e = strerror(errno.errno)
-        import scalanative.libc.StdioHelpers
-        libc.stdio.printf(e)
-        //        exit(EXIT_FAILURE)
-        val estring = fromCString(e)
-        throw Exception(s"Cannot bind to address $address: socket.bind errno ${libc.errno.errno} message: $estring")
-      else ()
-    }
+    common.attemptBlocking(socket.bind(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf)).unit
 
-  def listen = ZIO.attemptBlocking(socket.listen(fileDescriptor, backlog = 2)) // TODO hardcoded
+  def listen =
+    common.attemptBlocking(socket.listen(fileDescriptor, backlog = 2)).unit // TODO hardcoded
 
-  def accept =
-    ZIO
+  def accept: ZIO[Scope, Throwable, InetStreamSocket] =
+    common
       .attemptBlocking(socket.accept(fileDescriptor, InetSocketAddress.dummy.asSocketAddressPointer, InetSocketAddress.sizeOfPtr))
-      .flatMap(InetStreamSocket.fromFileDescriptor)
+      .map(InetStreamSocket(_))
+      .withFinalizer(_.close.debug("file descriptor closed").orDie)
 
   def writeLine(input: String) = write(input + '\n')
 
   def write(input: String) =
-    ZIO.attemptBlocking {
-      Zone { implicit zone =>
-        val text = toCString(input)
-        val len = strlen(text)
-        unistd.write(fileDescriptor, text, len)
-      }
+    common.attemptBlockingZoned { implicit zone =>
+      val text = toCString(input)
+      val len = strlen(text)
+      unistd.write(fileDescriptor, text, len)
     }
 
   def connect(address: InetSocketAddress) =
-    ZIO.attemptBlocking {
-      socket.connect(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf)
-    }
+    common
+      .attemptBlocking(socket.connect(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf))
+      .unit
 
-  override def toString: String = s"InetStreamSocket($fileDescriptor)"
+  override def toString: String = s"InetStreamSocket(fileDescriptor = $fileDescriptor)"
 
 object InetStreamSocket:
 
-  def open =
-    ZIO.attemptBlocking {
-      val fileDescriptor = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-      if fileDescriptor < 0
-      then throw Exception(s"Socket creation impossible.")
-      else InetStreamSocket(fileDescriptor)
-    }
-
-  private[socket] def fromFileDescriptor(fileDescriptor: Int) =
-    ZIO.attemptBlocking {
-      if fileDescriptor < 0
-      then throw Exception(s"Socket creation impossible.")
-      else InetStreamSocket(fileDescriptor)
-    }
+  def open: ZIO[Scope, Throwable, InetStreamSocket] =
+    common
+      .attemptBlocking(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
+      .map(InetStreamSocket(_))
+      .withFinalizer(_.close.debug("file descriptor closed").orDie)
