@@ -1,7 +1,9 @@
 import zio.*
 
-import scala.scalanative.libc.stdlib
-import scala.scalanative.libc.string.strlen
+import scala.scalanative.libc
+import scala.scalanative.libc.{errno, stdlib}
+import scala.scalanative.libc.stdlib.{EXIT_FAILURE, exit}
+import scala.scalanative.libc.string.{strerror, strlen}
 import scala.scalanative.posix.netinet.in.sockaddr_in
 import scala.scalanative.posix.sys.socket
 import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
@@ -13,18 +15,21 @@ object Main extends ZIOAppDefault :
 
   override def run =
     for
-      port <- ZIOAppArgs.getArgs.map(_.headOption.flatMap(_.toIntOption)).someOrFailException
-      server <- InetStreamSocket.open.debug
-      address = InetSocketAddress.fromHostAndPort("harcodeado abajo", port)
+      host <- ZIOAppArgs.getArgs.map(_.headOption).someOrFailException.debug
+      port <- ZIOAppArgs.getArgs.map(_.tail.headOption.flatMap(_.toIntOption)).someOrFailException.debug
+      server <- ZIO.scoped(InetStreamSocket.open).withFinalizer(_.close.orDie).debug
+      address <- InetSocketAddress.fromHostAndPort(host, port).debug
       _ <- server.bind(address).debug
       _ <- server.listen.debug
-      client <- server.accept.debug
+      client <- server.accept.debug.flatMap(respond).forever
+    yield ()
+
+  def respond(client: InetStreamSocket): ZIO[Any, Throwable, Unit] =
+    for
       _ <- client.writeLine("que onda soquete").debug
       _ <- client.write("chau ").debug
       _ <- client.writeLine("soquete").debug
-      _ <- Console.printLine("Hola ZIO 2 en Scala 3 native")
       _ <- client.close.debug
-      _ <- server.close.debug
     yield ()
 
 class InetStreamSocket private(fileDescriptor: Int):
@@ -41,7 +46,14 @@ class InetStreamSocket private(fileDescriptor: Int):
     ZIO.attemptBlocking {
       val res = socket.bind(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf)
       if res < 0
-      then throw Exception(s"Cannot bind to address $address")
+      then
+        import scalanative.unsafe.CQuote
+        libc.stdio.perror(c"bind")
+        val e = strerror(errno.errno)
+        import scalanative.libc.StdioHelpers
+        libc.stdio.printf(e)
+//        exit(EXIT_FAILURE)
+        throw Exception(s"Cannot bind to address $address: socket.bind errno ${libc.errno.errno}")
       else ()
     }
 
@@ -92,9 +104,38 @@ class InetSocketAddress(underlying: sockaddr_in):
   // TODO package private
   def asSocketAddressPointer: Ptr[sockaddr] = underlying.toPtr.asInstanceOf[Ptr[sockaddr]]
 
+  override def toString: String =
+    import scala.scalanative.posix.netinet.inOps.*
+    s"InetSocketAddress(${underlying.toPtr.sin_addr._1})"
+
 object InetSocketAddress:
 
-  def fromHostAndPort(host: String, port: Int): InetSocketAddress =
+  def fromHostAndPort(host: String, port: Int) = ZIO.attemptBlocking {
+    Zone { implicit z =>
+      import scala.scalanative.posix.arpa.inet.{htons, inet_pton}
+      import scala.scalanative.posix.netinet.inOps.*
+      import scala.scalanative.posix.sys.socket.AF_INET
+      import scalanative.unsigned.UnsignedRichInt
+
+      val socketAddress: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
+      socketAddress.sin_family = AF_INET.toUShort
+      socketAddress.sin_port = htons(port.toUShort)
+
+      val cHost = toCString(host)
+      val res = inet_pton(
+        AF_INET,
+        //      c"127.0.0.1",
+        cHost,
+        socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]]
+      )
+      if res < 0 then throw Exception("invalid host or port") else ()
+
+      InetSocketAddress(socketAddress)
+    }
+  }
+
+  // TODO package private
+  val dummy =
     import scala.scalanative.posix.arpa.inet.{htons, inet_pton}
     import scala.scalanative.posix.netinet.inOps.*
     import scala.scalanative.posix.sys.socket.AF_INET
@@ -104,19 +145,16 @@ object InetSocketAddress:
     val socketAddress: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
     socketAddress.sin_family = AF_INET.toUShort
     socketAddress.sin_port = htons(8080.toUShort)
-    inet_pton(
+
+    val res = inet_pton(
       AF_INET,
-      //      Zone { implicit z =>
-      //        toCString(host)
-      //      },
       c"127.0.0.1",
       socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]]
     )
-    socketAddress.sin_port = htons(port.toUShort)
-    InetSocketAddress(socketAddress)
+    val failure = libc.stdlib.EXIT_FAILURE
+    if res < 0 then throw Exception(s"inet_pton errno $failure") else ()
 
-  // TODO package private
-  val dummy = InetSocketAddress.fromHostAndPort("127.0.0.1", 8080)
+    InetSocketAddress(socketAddress)
 
   // TODO package private
   val sizeOf: UInt = sizeof[sockaddr_in].toUInt
