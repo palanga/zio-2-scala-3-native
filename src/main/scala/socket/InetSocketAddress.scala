@@ -3,23 +3,21 @@ package socket
 import zio.*
 
 import scala.scalanative.libc
-import scala.scalanative.libc.{errno, stdlib}
-import scala.scalanative.libc.stdlib.{EXIT_FAILURE, exit}
 import scala.scalanative.libc.string.{strerror, strlen}
+import scala.scalanative.libc.{stdlib}
 import scala.scalanative.posix.netinet.in.sockaddr_in
 import scala.scalanative.posix.sys.socket
 import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
-import scala.scalanative.posix.unistd
-import scala.scalanative.unsafe.{CString, Ptr, Zone, sizeof, stackalloc, toCString, fromCString}
+import scala.scalanative.unsafe.{Ptr, Zone, sizeof, stackalloc, toCString}
 import scala.scalanative.unsigned.UInt
 
-class InetSocketAddress(underlying: sockaddr_in):
-
-  private[socket] def asSocketAddressPointer: Ptr[sockaddr] = underlying.toPtr.asInstanceOf[Ptr[sockaddr]]
+class InetSocketAddress private(underlying: sockaddr_in):
 
   override def toString: String =
     import scala.scalanative.posix.netinet.inOps.*
     s"InetSocketAddress(${underlying.toPtr.sin_addr._1})" // TODO get the actual host and port
+
+  private[socket] def asSocketAddressPointer: Ptr[sockaddr] = underlying.toPtr.asInstanceOf[Ptr[sockaddr]]
 
 object InetSocketAddress:
 
@@ -46,6 +44,13 @@ object InetSocketAddress:
     }
   }
 
+  private[socket] val sizeOf: UInt = sizeof[sockaddr_in].toUInt
+
+  private[socket] val sizeOfPtr: Ptr[socklen_t] =
+    val len = stdlib.malloc(sizeof[socklen_t]).asInstanceOf[Ptr[socklen_t]]
+    !len = sizeof[sockaddr_in].toUInt
+    len
+
   private[socket] val dummy =
     import scala.scalanative.posix.arpa.inet.{htons, inet_pton}
     import scala.scalanative.posix.netinet.inOps.*
@@ -62,14 +67,6 @@ object InetSocketAddress:
       c"127.0.0.1",
       socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]]
     )
-    val failure = libc.stdlib.EXIT_FAILURE
-    if res < 0 then throw Exception(s"inet_pton errno $failure") else ()
+    if res < 0 then throw Exception(s"inet_pton error") else ()
 
     InetSocketAddress(socketAddress)
-
-  private[socket] val sizeOf: UInt = sizeof[sockaddr_in].toUInt
-
-  private[socket] val sizeOfPtr: Ptr[socklen_t] =
-    val len = stdlib.malloc(sizeof[socklen_t]).asInstanceOf[Ptr[socklen_t]]
-    !len = sizeof[sockaddr_in].toUInt
-    len
