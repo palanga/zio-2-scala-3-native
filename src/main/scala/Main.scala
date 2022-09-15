@@ -1,5 +1,7 @@
 import zio.*
 
+import scala.scalanative.libc.stdlib
+import scala.scalanative.libc.string.strlen
 import scala.scalanative.posix.netinet.in.sockaddr_in
 import scala.scalanative.posix.sys.socket
 import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
@@ -34,7 +36,7 @@ class InetStreamSocket private(fileDescriptor: Int):
 
   def bind(address: InetSocketAddress) =
     ZIO.attemptBlocking {
-      val res = socket.bind(fileDescriptor, address.asSocketAddressPointer, address.sizeOf)
+      val res = socket.bind(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf)
       if res < 0
       then throw Exception(s"Cannot bind to address $address")
       else ()
@@ -43,24 +45,24 @@ class InetStreamSocket private(fileDescriptor: Int):
   def listen = ZIO.attemptBlocking(socket.listen(fileDescriptor, backlog = 2)) // TODO hardcoded
 
   def accept =
-    val dummy = InetSocketAddress.fromHostAndPort("127.0.0.1", 8080)
-    val len = stackalloc[socklen_t]()
-    !len = sizeof[sockaddr_in].toUInt
     ZIO
-      .attemptBlocking(socket.accept(fileDescriptor, dummy.asSocketAddressPointer, len))
+      .attemptBlocking(socket.accept(fileDescriptor, InetSocketAddress.dummy.asSocketAddressPointer, InetSocketAddress.sizeOfPtr))
       .flatMap(InetStreamSocket.fromFileDescriptor)
 
   def write(input: String) =
     import scalanative.unsafe.CQuote
     import scalanative.unsigned.UnsignedRichInt
-    val text: CString = c"hola soquete"
     ZIO.attemptBlocking {
-      unistd.write(fileDescriptor, text, 32.toUShort)
+      Zone { implicit z =>
+        val text: CString = toCString(input)
+        val len = strlen(text)
+        unistd.write(fileDescriptor, text, len)
+      }
     }
 
   def connect(address: InetSocketAddress) =
     ZIO.attemptBlocking {
-      socket.connect(fileDescriptor, address.asSocketAddressPointer, address.sizeOf)
+      socket.connect(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf)
     }
 
   override def toString: String = s"InetStreamSocket($fileDescriptor)"
@@ -87,14 +89,8 @@ class InetSocketAddress(underlying: sockaddr_in):
   // TODO package private
   def asSocketAddressPointer: Ptr[sockaddr] = underlying.toPtr.asInstanceOf[Ptr[sockaddr]]
 
-  def sizeOf: UInt = sizeof[sockaddr_in].toUInt
-
-//  def sizeOfPtr: Ptr[socklen_t] =
-//    val len = stackalloc[socklen_t]()
-//    !len = sizeOf
-//    len
-
 object InetSocketAddress:
+
   def fromHostAndPort(host: String, port: Int): InetSocketAddress =
     import scala.scalanative.posix.arpa.inet.{htons, inet_pton}
     import scala.scalanative.posix.netinet.inOps.*
@@ -117,10 +113,13 @@ object InetSocketAddress:
     InetSocketAddress(socketAddress)
 
   // TODO package private
-//  val sizeOf: UInt = sizeof[sockaddr_in].toUInt
+  val dummy = InetSocketAddress.fromHostAndPort("127.0.0.1", 8080)
 
   // TODO package private
-//  def sizeOfPtr: Ptr[socklen_t] =
-//    val len = stackalloc[socklen_t]()
-//    !len = sizeOf
-//    len
+  val sizeOf: UInt = sizeof[sockaddr_in].toUInt
+
+  // TODO package private
+  val sizeOfPtr: Ptr[socklen_t] =
+    val len = stdlib.malloc(sizeof[socklen_t]).asInstanceOf[Ptr[socklen_t]]
+    !len = sizeof[sockaddr_in].toUInt
+    len
