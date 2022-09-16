@@ -5,7 +5,7 @@ import zio.*
 import scala.scalanative
 import scala.scalanative.posix
 
-class InetStreamSocket private(fileDescriptor: Int):
+class InetStreamSocket private (fileDescriptor: Int):
 
   def close =
     common
@@ -23,7 +23,10 @@ class InetStreamSocket private(fileDescriptor: Int):
   def accept: ZIO[Scope, Throwable, InetStreamSocket] =
     common
       // TODO dummy ?
-      .attemptBlocking(posix.sys.socket.accept(fileDescriptor, InetSocketAddress.dummy.asSocketAddressPointer, InetSocketAddress.sizeOfPtr))
+      .attemptBlocking(
+        posix.sys.socket
+          .accept(fileDescriptor, InetSocketAddress.dummy.asSocketAddressPointer, InetSocketAddress.sizeOfPtr)
+      )
       .map(InetStreamSocket(_))
       .withFinalizer(_.close.debug("file descriptor closed").orDie)
 
@@ -32,13 +35,15 @@ class InetStreamSocket private(fileDescriptor: Int):
   def write(input: String) =
     common.attemptBlockingZoned { implicit zone =>
       val text = scalanative.unsafe.toCString(input)
-      val len = scalanative.libc.string.strlen(text)
+      val len  = scalanative.libc.string.strlen(text)
       posix.unistd.write(fileDescriptor, text, len)
     }
 
   def connect(address: InetSocketAddress) =
     common
-      .attemptBlocking(posix.sys.socket.connect(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf))
+      .attemptBlocking(
+        posix.sys.socket.connect(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf)
+      )
       .unit
 
   override def toString: String = s"InetStreamSocket(fileDescriptor = $fileDescriptor)"

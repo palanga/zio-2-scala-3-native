@@ -3,15 +3,15 @@ package socket
 import zio.*
 
 import scala.scalanative.libc
-import scala.scalanative.libc.string.{strerror, strlen}
 import scala.scalanative.libc.stdlib
+import scala.scalanative.libc.string.{ strerror, strlen }
 import scala.scalanative.posix.netinet.in.sockaddr_in
 import scala.scalanative.posix.sys.socket
-import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
-import scala.scalanative.unsafe.{Ptr, Zone, sizeof, stackalloc, toCString}
+import scala.scalanative.posix.sys.socket.{ sockaddr, socklen_t }
+import scala.scalanative.unsafe.{ sizeof, stackalloc, toCString, Ptr, Zone }
 import scala.scalanative.unsigned.UInt
 
-class InetSocketAddress private(underlying: sockaddr_in):
+class InetSocketAddress private (underlying: sockaddr_in):
 
   override def toString: String =
     import scala.scalanative.posix.netinet.inOps.*
@@ -20,36 +20,19 @@ class InetSocketAddress private(underlying: sockaddr_in):
   private[socket] def asSocketAddressPointer: Ptr[sockaddr] = underlying.toPtr.asInstanceOf[Ptr[sockaddr]]
 
 /**
+ * #include <stdio.h> #include <stdlib.h> #include <sys/socket.h> #include <netinet/in.h> #include <netdb.h>
  *
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-
-void
-init_sockaddr (struct sockaddr_in *name,
-               const char *hostname,
-               uint16_t port)
-{
-  struct hostent *hostinfo;
-
-  name->sin_family = AF_INET;
-  name->sin_port = htons (port);
-  hostinfo = gethostbyname (hostname);
-  if (hostinfo == NULL)
-    {
-      fprintf (stderr, "Unknown host %s.\n", hostname);
-      exit (EXIT_FAILURE);
-    }
-  name->sin_addr = *(struct in_addr *) hostinfo->h_addr;
-}
+ * void init_sockaddr (struct sockaddr_in *name, const char *hostname, uint16_t port) { struct hostent *hostinfo;
+ *
+ * name->sin_family = AF_INET; name->sin_port = htons (port); hostinfo = gethostbyname (hostname); if (hostinfo == NULL)
+ * { fprintf (stderr, "Unknown host %s.\n", hostname); exit (EXIT_FAILURE); } name->sin_addr = *(struct in_addr *)
+ * hostinfo->h_addr; }
  */
 object InetSocketAddress:
 
   def fromHostAndPort(host: String, port: Int) = ZIO.attemptBlocking {
     Zone { implicit z =>
-      import scala.scalanative.posix.arpa.inet.{htons, inet_pton}
+      import scala.scalanative.posix.arpa.inet.{ htons, inet_pton }
       import scala.scalanative.posix.netinet.inOps.*
       import scala.scalanative.posix.sys.socket.AF_INET
       import scalanative.unsigned.UnsignedRichInt
@@ -59,10 +42,10 @@ object InetSocketAddress:
       socketAddress.sin_port = htons(port.toUShort)
 
       val cHost = toCString(host)
-      val res = inet_pton(
+      val res   = inet_pton(
         AF_INET,
         cHost,
-        socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]]
+        socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]],
       )
       if res < 0 then throw Exception("invalid host or port") else ()
 
@@ -78,7 +61,7 @@ object InetSocketAddress:
     len
 
   private[socket] val dummy =
-    import scala.scalanative.posix.arpa.inet.{htons, inet_pton}
+    import scala.scalanative.posix.arpa.inet.{ htons, inet_pton }
     import scala.scalanative.posix.netinet.inOps.*
     import scala.scalanative.posix.sys.socket.AF_INET
     import scalanative.unsafe.CQuote
@@ -91,7 +74,7 @@ object InetSocketAddress:
     val res = inet_pton(
       AF_INET,
       c"127.0.0.1",
-      socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]]
+      socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]],
     )
     if res < 0 then throw Exception(s"inet_pton error") else ()
 
