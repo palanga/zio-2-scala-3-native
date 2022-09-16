@@ -8,3 +8,5 @@ libraryDependencies += "dev.zio" %%% "zio" % "2.0.1"
 
 // This is needed for the linking step
 libraryDependencies += "io.github.cquiroz" %%% "scala-java-time" % "2.4.0"
+
+scalacOptions +=  "-source:future"

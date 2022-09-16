@@ -5,9 +5,9 @@ object Main extends ZIOAppDefault :
 
   override def run =
     for
-      args <- Args.fromCommandLine
-      server <- InetStreamSocketServer.start(args.host, args.port)
-      _ <- Console.printLine(s"Listening on ${args.host}:${args.port}")
+      Args(host, port) <- Args.fromCommandLine
+      server <- InetStreamSocketServer.start(host, port)
+      _ <- Console.printLine(s"Listening on $host:$port")
       _ <- ZIO.scoped(server.accept.flatMap(respond)).forever
     yield ()
 
@@ -18,7 +18,7 @@ object Main extends ZIOAppDefault :
       _ <- client.writeLine("soquete")
     yield ()
 
-class Args private(val host: String, val port: Int)
+case class Args private(host: String, port: Int)
 object Args:
   def fromCommandLine: ZIO[ZIOAppArgs, Exception, Args] =
     ZIOAppArgs.getArgs.map(_.toList).flatMap {
