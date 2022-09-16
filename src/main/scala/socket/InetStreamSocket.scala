@@ -50,3 +50,15 @@ object InetStreamSocket:
       .attemptBlocking(posix.sys.socket.socket(posix.sys.socket.AF_INET, posix.sys.socket.SOCK_STREAM, 0))
       .map(InetStreamSocket(_))
       .withFinalizer(_.close.debug("file descriptor closed").orDie)
+
+object InetStreamSocketServer:
+  
+  def start(address: InetSocketAddress): ZIO[Scope, Throwable, InetStreamSocket] =
+    for
+      server <- InetStreamSocket.open
+      _ <- server.bind(address)
+      _ <- server.listen
+    yield server
+
+  def start(host: String, port: Int): ZIO[Scope, Throwable, InetStreamSocket] =
+    InetSocketAddress.fromHostAndPort(host, port).flatMap(start)

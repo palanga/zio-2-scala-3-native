@@ -5,18 +5,26 @@ object Main extends ZIOAppDefault :
 
   override def run =
     for
-      host <- ZIOAppArgs.getArgs.map(_.headOption).someOrFailException.debug
-      port <- ZIOAppArgs.getArgs.map(_.tail.headOption.flatMap(_.toIntOption)).someOrFailException.debug
-      server <- InetStreamSocket.open.debug
-      address <- InetSocketAddress.fromHostAndPort(host, port).debug
-      _ <- server.bind(address).debug
-      _ <- server.listen.debug
-      _ <- ZIO.scoped(server.accept.debug.flatMap(respond)).forever
+      args <- Args.fromCommandLine
+      server <- InetStreamSocketServer.start(args.host, args.port)
+      _ <- Console.printLine(s"Listening on ${args.host}:${args.port}")
+      _ <- ZIO.scoped(server.accept.flatMap(respond)).forever
     yield ()
 
-  def respond(client: InetStreamSocket): ZIO[Any, Throwable, Unit] =
+  private def respond(client: InetStreamSocket) =
     for
-      _ <- client.writeLine("que onda soquete").debug
-      _ <- client.write("chau ").debug
-      _ <- client.writeLine("soquete").debug
+      _ <- client.writeLine("que onda soquete")
+      _ <- client.write("chau ")
+      _ <- client.writeLine("soquete")
     yield ()
+
+class Args private(val host: String, val port: Int)
+object Args:
+  def fromCommandLine: ZIO[ZIOAppArgs, Exception, Args] =
+    ZIOAppArgs.getArgs.map(_.toList).flatMap {
+      case host :: StringToInt(port) :: _ => ZIO.succeed(Args(host, port))
+      case args => ZIO.fail(Exception(s"Invalid command line args: <<$args>>."))
+    }
+
+object StringToInt:
+  def unapply(input: String): Option[Int] = input.toIntOption
