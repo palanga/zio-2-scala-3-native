@@ -2,20 +2,37 @@ package socket
 
 import zio.*
 
+import scala.scalanative
+import scala.scalanative.posix
 import scala.scalanative.libc
 import scala.scalanative.libc.stdlib
-import scala.scalanative.libc.string.{ strerror, strlen }
+import scala.scalanative.libc.string.{strerror, strlen}
 import scala.scalanative.posix.netinet.in.sockaddr_in
 import scala.scalanative.posix.sys.socket
-import scala.scalanative.posix.sys.socket.{ sockaddr, socklen_t }
-import scala.scalanative.unsafe.{ sizeof, stackalloc, toCString, Ptr, Zone }
+import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
+import scala.scalanative.unsafe.{CChar, CString, Ptr, Zone, sizeof, stackalloc, toCString}
 import scala.scalanative.unsigned.UInt
 
 class Address private (underlying: sockaddr_in):
 
-  override def toString: String =
+  def host: String =
     import scala.scalanative.posix.netinet.inOps.*
-    s"InetSocketAddress(${underlying.toPtr.sin_addr._1})" // TODO get the actual host and port
+    import scalanative.unsigned.UnsignedRichInt
+
+    val destination: CString = scalanative.unsafe.stackalloc[CChar](posix.netinet.in.INET_ADDRSTRLEN.toUInt)
+
+    posix.arpa.inet.inet_ntop(
+      posix.sys.socket.AF_INET,
+      underlying.toPtr.sin_addr.toPtr.asInstanceOf[Ptr[Byte]],
+      destination,
+      posix.netinet.in.INET_ADDRSTRLEN.toUInt,
+    )
+
+    scalanative.unsafe.fromCString(destination)
+
+  def port: Int = posix.arpa.inet.ntohs(underlying._2).toInt
+
+  override def toString: String = s"$host:$port"
 
   private[socket] def asSocketAddressPointer: Ptr[sockaddr] = underlying.toPtr.asInstanceOf[Ptr[sockaddr]]
 
@@ -66,7 +83,27 @@ object Address:
 
       Address(socketAddress)
     }
-  }
+  }.debug
+
+  private def underlyingFromHostAndPort(host: String, port: Int)(using Zone): sockaddr_in =
+    import scala.scalanative.posix.arpa.inet.{htons, inet_pton}
+    import scala.scalanative.posix.netinet.inOps.*
+    import scala.scalanative.posix.sys.socket.AF_INET
+    import scalanative.unsigned.UnsignedRichInt
+
+    val socketAddress: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
+    socketAddress.sin_family = AF_INET.toUShort
+    socketAddress.sin_port = htons(port.toUShort)
+
+    val cHost = toCString(host)
+    val res = inet_pton(
+      AF_INET,
+      cHost,
+      socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]],
+    )
+    if res != 1 then throw Exception("invalid host or port") else ()
+
+    !socketAddress
 
   private[socket] val sizeOf: UInt = sizeof[sockaddr_in].toUInt
 
