@@ -66,44 +66,23 @@ object Address:
     Zone { implicit z =>
       import scala.scalanative.posix.arpa.inet.{ htons, inet_pton }
       import scala.scalanative.posix.netinet.inOps.*
-      import scala.scalanative.posix.sys.socket.AF_INET
       import scalanative.unsigned.UnsignedRichInt
 
       val socketAddress: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
-      socketAddress.sin_family = AF_INET.toUShort
+      socketAddress.sin_family = posix.sys.socket.AF_INET.toUShort
       socketAddress.sin_port = htons(port.toUShort)
 
       val cHost = toCString(host)
       val res   = inet_pton(
-        AF_INET,
+        posix.sys.socket.AF_INET,
         cHost,
         socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]],
       )
-      if res < 0 then throw Exception("invalid host or port") else ()
+      if res != 1 then throw Exception("invalid host or port") else ()
 
       Address(socketAddress)
     }
   }.debug
-
-  private def underlyingFromHostAndPort(host: String, port: Int)(using Zone): sockaddr_in =
-    import scala.scalanative.posix.arpa.inet.{htons, inet_pton}
-    import scala.scalanative.posix.netinet.inOps.*
-    import scala.scalanative.posix.sys.socket.AF_INET
-    import scalanative.unsigned.UnsignedRichInt
-
-    val socketAddress: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
-    socketAddress.sin_family = AF_INET.toUShort
-    socketAddress.sin_port = htons(port.toUShort)
-
-    val cHost = toCString(host)
-    val res = inet_pton(
-      AF_INET,
-      cHost,
-      socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]],
-    )
-    if res != 1 then throw Exception("invalid host or port") else ()
-
-    !socketAddress
 
   private[socket] val sizeOf: UInt = sizeof[sockaddr_in].toUInt
 
