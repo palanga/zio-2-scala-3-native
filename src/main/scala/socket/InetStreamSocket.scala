@@ -2,27 +2,28 @@ package socket
 
 import zio.*
 
-import scala.scalanative.libc
-import scala.scalanative.libc.errno
-import scala.scalanative.libc.string.{strerror, strlen}
-import scala.scalanative.posix.sys.socket
-import scala.scalanative.posix.unistd
-import scala.scalanative.unsafe.{Zone, fromCString, sizeof, toCString}
+import scala.scalanative
+import scala.scalanative.posix
 
 class InetStreamSocket private(fileDescriptor: Int):
 
   def close =
-    common.attemptBlocking(unistd.close(fileDescriptor), s"File descriptor number $fileDescriptor.").as(fileDescriptor)
+    common
+      .attemptBlocking(posix.unistd.close(fileDescriptor), s"File descriptor number $fileDescriptor.")
+      .as(fileDescriptor)
 
   def bind(address: InetSocketAddress) =
-    common.attemptBlocking(socket.bind(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf)).unit
+    common
+      .attemptBlocking(posix.sys.socket.bind(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf))
+      .unit
 
   def listen =
-    common.attemptBlocking(socket.listen(fileDescriptor, backlog = 2)).unit // TODO hardcoded
+    common.attemptBlocking(posix.sys.socket.listen(fileDescriptor, backlog = 2)).unit // TODO hardcoded
 
   def accept: ZIO[Scope, Throwable, InetStreamSocket] =
     common
-      .attemptBlocking(socket.accept(fileDescriptor, InetSocketAddress.dummy.asSocketAddressPointer, InetSocketAddress.sizeOfPtr))
+      // TODO dummy ?
+      .attemptBlocking(posix.sys.socket.accept(fileDescriptor, InetSocketAddress.dummy.asSocketAddressPointer, InetSocketAddress.sizeOfPtr))
       .map(InetStreamSocket(_))
       .withFinalizer(_.close.debug("file descriptor closed").orDie)
 
@@ -30,14 +31,14 @@ class InetStreamSocket private(fileDescriptor: Int):
 
   def write(input: String) =
     common.attemptBlockingZoned { implicit zone =>
-      val text = toCString(input)
-      val len = strlen(text)
-      unistd.write(fileDescriptor, text, len)
+      val text = scalanative.unsafe.toCString(input)
+      val len = scalanative.libc.string.strlen(text)
+      posix.unistd.write(fileDescriptor, text, len)
     }
 
   def connect(address: InetSocketAddress) =
     common
-      .attemptBlocking(socket.connect(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf))
+      .attemptBlocking(posix.sys.socket.connect(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf))
       .unit
 
   override def toString: String = s"InetStreamSocket(fileDescriptor = $fileDescriptor)"
@@ -46,6 +47,6 @@ object InetStreamSocket:
 
   def open: ZIO[Scope, Throwable, InetStreamSocket] =
     common
-      .attemptBlocking(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
+      .attemptBlocking(posix.sys.socket.socket(posix.sys.socket.AF_INET, posix.sys.socket.SOCK_STREAM, 0))
       .map(InetStreamSocket(_))
       .withFinalizer(_.close.debug("file descriptor closed").orDie)

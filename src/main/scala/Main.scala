@@ -1,9 +1,9 @@
-import zio.*
 import socket.*
+import zio.*
 
 object Main extends ZIOAppDefault :
 
-  override def run = ZIO.scoped {
+  override def run =
     for
       host <- ZIOAppArgs.getArgs.map(_.headOption).someOrFailException.debug
       port <- ZIOAppArgs.getArgs.map(_.tail.headOption.flatMap(_.toIntOption)).someOrFailException.debug
@@ -13,7 +13,6 @@ object Main extends ZIOAppDefault :
       _ <- server.listen.debug
       _ <- ZIO.scoped(server.accept.debug.flatMap(respond)).forever
     yield ()
-  }
 
   def respond(client: InetStreamSocket): ZIO[Any, Throwable, Unit] =
     for
