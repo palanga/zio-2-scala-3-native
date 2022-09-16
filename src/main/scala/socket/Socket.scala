@@ -5,29 +5,26 @@ import zio.*
 import scala.scalanative
 import scala.scalanative.posix
 
-class InetStreamSocket private (fileDescriptor: Int):
+class Socket private (fileDescriptor: Int):
 
   def close =
     common
       .attemptBlocking(posix.unistd.close(fileDescriptor), s"File descriptor number $fileDescriptor.")
       .as(fileDescriptor)
 
-  def bind(address: InetSocketAddress) =
+  def bind(address: Address) =
     common
-      .attemptBlocking(posix.sys.socket.bind(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf))
+      .attemptBlocking(posix.sys.socket.bind(fileDescriptor, address.asSocketAddressPointer, Address.sizeOf))
       .unit
 
   def listen =
     common.attemptBlocking(posix.sys.socket.listen(fileDescriptor, backlog = 2)).unit // TODO hardcoded
 
-  def accept: ZIO[Scope, Throwable, InetStreamSocket] =
+  def accept: ZIO[Scope, Throwable, Socket] =
     common
       // TODO dummy ?
-      .attemptBlocking(
-        posix.sys.socket
-          .accept(fileDescriptor, InetSocketAddress.dummy.asSocketAddressPointer, InetSocketAddress.sizeOfPtr)
-      )
-      .map(InetStreamSocket(_))
+      .attemptBlocking(posix.sys.socket.accept(fileDescriptor, Address.dummy.asSocketAddressPointer, Address.sizeOfPtr))
+      .map(Socket(_))
       .withFinalizer(_.close.debug("file descriptor closed").orDie)
 
   def writeLine(input: String) = write(input + '\n')
@@ -39,19 +36,17 @@ class InetStreamSocket private (fileDescriptor: Int):
       posix.unistd.write(fileDescriptor, text, len)
     }
 
-  def connect(address: InetSocketAddress) =
+  def connect(address: Address) =
     common
-      .attemptBlocking(
-        posix.sys.socket.connect(fileDescriptor, address.asSocketAddressPointer, InetSocketAddress.sizeOf)
-      )
+      .attemptBlocking(posix.sys.socket.connect(fileDescriptor, address.asSocketAddressPointer, Address.sizeOf))
       .unit
 
   override def toString: String = s"InetStreamSocket(fileDescriptor = $fileDescriptor)"
 
-object InetStreamSocket:
+object Socket:
 
-  def open: ZIO[Scope, Throwable, InetStreamSocket] =
+  def open: ZIO[Scope, Throwable, Socket] =
     common
       .attemptBlocking(posix.sys.socket.socket(posix.sys.socket.AF_INET, posix.sys.socket.SOCK_STREAM, 0))
-      .map(InetStreamSocket(_))
+      .map(Socket(_))
       .withFinalizer(_.close.debug("file descriptor closed").orDie)

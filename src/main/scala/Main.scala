@@ -6,12 +6,12 @@ object Main extends ZIOAppDefault:
   override def run =
     for
       Args(host, port) <- Args.fromCommandLine
-      server           <- InetStreamSocketServer.start(host, port)
+      server           <- Server.start(host, port)
       _                <- Console.printLine(s"Listening on $host:$port")
       _                <- ZIO.scoped(server.accept.flatMap(respond)).forever
     yield ()
 
-  private def respond(client: InetStreamSocket) =
+  private def respond(client: Socket) =
     for
       _ <- client.writeLine("que onda soquete")
       _ <- client.write("chau ")

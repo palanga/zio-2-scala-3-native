@@ -11,7 +11,7 @@ import scala.scalanative.posix.sys.socket.{ sockaddr, socklen_t }
 import scala.scalanative.unsafe.{ sizeof, stackalloc, toCString, Ptr, Zone }
 import scala.scalanative.unsigned.UInt
 
-class InetSocketAddress private (underlying: sockaddr_in):
+class Address private (underlying: sockaddr_in):
 
   override def toString: String =
     import scala.scalanative.posix.netinet.inOps.*
@@ -28,7 +28,7 @@ class InetSocketAddress private (underlying: sockaddr_in):
  * { fprintf (stderr, "Unknown host %s.\n", hostname); exit (EXIT_FAILURE); } name->sin_addr = *(struct in_addr *)
  * hostinfo->h_addr; }
  */
-object InetSocketAddress:
+object Address:
 
   def fromHostAndPort(host: String, port: Int) = ZIO.attemptBlocking {
     Zone { implicit z =>
@@ -49,7 +49,7 @@ object InetSocketAddress:
       )
       if res < 0 then throw Exception("invalid host or port") else ()
 
-      InetSocketAddress(socketAddress)
+      Address(socketAddress)
     }
   }
 
@@ -78,4 +78,4 @@ object InetSocketAddress:
     )
     if res < 0 then throw Exception(s"inet_pton error") else ()
 
-    InetSocketAddress(socketAddress)
+    Address(socketAddress)
