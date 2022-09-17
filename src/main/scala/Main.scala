@@ -3,6 +3,7 @@ import zio.*
 
 object Main extends ZIOAppDefault:
 
+  // TODO probar con ZLayer scoped para el shutdown. tambien probar ensuring en vez de withFinalizer
   override def run =
     for
       Args(host, port) <- Args.fromCommandLine

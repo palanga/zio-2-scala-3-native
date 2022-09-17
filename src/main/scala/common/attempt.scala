@@ -3,7 +3,8 @@ package common
 import zio.*
 
 import scala.scalanative
-import scala.scalanative.unsafe.{CInt, Ptr, Tag}
+import scala.scalanative.unsafe
+import scala.scalanative.unsafe.{ CInt, Ptr }
 
 def attemptBlocking(effect: => CInt): Task[CInt] =
   ZIO.attemptBlocking {
@@ -30,7 +31,7 @@ def attemptBlocking(effect: => CInt, additionalErrorMessage: => String): Task[CI
 def attemptBlocking[A](effect: Ptr[A] => CInt)(using scalanative.unsafe.Tag[A]): Task[A] =
   ZIO.attemptBlocking {
     val res: Ptr[A] = scalanative.unsafe.stackalloc[A]()
-    val exitCode = effect(res)
+    val exitCode    = effect(res)
     if exitCode < 0
     then
       val errorNumber  = scalanative.libc.errno.errno
@@ -39,10 +40,11 @@ def attemptBlocking[A](effect: Ptr[A] => CInt)(using scalanative.unsafe.Tag[A]):
     else !res
   }
 
-def attemptBlocking[A](effect: Ptr[A] => CInt, isBadExit: CInt => Boolean)(using scalanative.unsafe.Tag[A]): Task[A] =
+// TODO not used and probably not working
+def attemptBlocking[A](effect: Ptr[A] => CInt, isBadExit: CInt => Boolean)(using unsafe.Tag[A]): Task[A] =
   ZIO.attemptBlocking {
     val res: Ptr[A] = scalanative.unsafe.stackalloc[A]()
-    val exitCode = effect(res)
+    val exitCode    = effect(res)
     if isBadExit(exitCode)
     then
       val errorNumber  = scalanative.libc.errno.errno
@@ -61,5 +63,20 @@ def attemptBlockingZoned(effect: scalanative.unsafe.Zone => CInt): Task[CInt] =
         val errorMessage = scalanative.unsafe.fromCString(scalanative.libc.string.strerror(errorNumber))
         throw Exception(s"Error number <<$errorNumber>>: $errorMessage")
       else res
+    }
+  }
+
+// TODO: curry and probably not working
+def attemptBlockingZonedDestination[A](effect: scalanative.unsafe.Zone => (Ptr[A] => CInt), isBadExit: CInt => Boolean)(using unsafe.Tag[A]): Task[A] =
+  ZIO.attemptBlocking {
+    scalanative.unsafe.Zone { implicit zone =>
+      val res: Ptr[A] = scalanative.unsafe.stackalloc[A]()
+      val exitCode    = effect(zone)(res)
+      if isBadExit(exitCode)
+      then
+        val errorNumber  = scalanative.libc.errno.errno
+        val errorMessage = scalanative.unsafe.fromCString(scalanative.libc.string.strerror(errorNumber))
+        throw Exception(s"Error number <<$errorNumber>>: $errorMessage")
+      else !res
     }
   }

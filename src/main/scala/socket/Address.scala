@@ -6,11 +6,12 @@ import scala.scalanative
 import scala.scalanative.posix
 import scala.scalanative.libc
 import scala.scalanative.libc.stdlib
-import scala.scalanative.libc.string.{strerror, strlen}
-import scala.scalanative.posix.netinet.in.sockaddr_in
+import scala.scalanative.libc.string.{ strerror, strlen }
+import scala.scalanative.posix.inttypes.uint16_t
+import scala.scalanative.posix.netinet.in.{ in_addr, sockaddr_in }
 import scala.scalanative.posix.sys.socket
-import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
-import scala.scalanative.unsafe.{CChar, CString, Ptr, Zone, sizeof, stackalloc, toCString}
+import scala.scalanative.posix.sys.socket.{ sockaddr, socklen_t }
+import scala.scalanative.unsafe.{ sizeof, stackalloc, toCString, CChar, CInt, CString, Ptr, Zone }
 import scala.scalanative.unsigned.UInt
 
 class Address private (underlying: sockaddr_in):
@@ -62,9 +63,35 @@ class Address private (underlying: sockaddr_in):
  */
 object Address:
 
+  // TODO probably not working
+  // 32 bits for AF_INET,  128 bits for AF_INET6
+  private def hostStringToNumeric(host: String) =
+    common.attemptBlockingZonedDestination[in_addr](
+      implicit zone =>
+        ptr => posix.arpa.inet.inet_pton(posix.sys.socket.AF_INET, toCString(host), ptr.asInstanceOf[Ptr[Byte]]),
+      _ != 1,
+    )
+
+//  def fromHostAndPort(host: String, port: Int): Task[Address] =
+//    import scalanative.unsigned.UnsignedRichInt
+//    import scala.scalanative.posix.netinet.inOps.*
+//
+//    hostStringToNumeric(host).map { cHost =>
+//
+//      val cFamily = posix.sys.socket.AF_INET
+//      val cPort   = posix.arpa.inet.htons(port.toUShort)
+//
+//      val cSocketAddress = stackalloc[sockaddr_in]()
+//      cSocketAddress.sin_family = cFamily.toUShort
+//      cSocketAddress.sin_addr = cHost
+//      cSocketAddress.sin_port = cPort
+//
+//      Address(cSocketAddress)
+//    }.debug
+
   def fromHostAndPort(host: String, port: Int) = ZIO.attemptBlocking {
     Zone { implicit z =>
-      import scala.scalanative.posix.arpa.inet.{ htons, inet_pton }
+      import scala.scalanative.posix.arpa.inet.{htons, inet_pton}
       import scala.scalanative.posix.netinet.inOps.*
       import scalanative.unsigned.UnsignedRichInt
 
@@ -73,7 +100,7 @@ object Address:
       socketAddress.sin_port = htons(port.toUShort)
 
       val cHost = toCString(host)
-      val res   = inet_pton(
+      val res = inet_pton(
         posix.sys.socket.AF_INET,
         cHost,
         socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]],
@@ -83,6 +110,22 @@ object Address:
       Address(socketAddress)
     }
   }.debug
+
+
+  // TODO not tested
+  def withStackAlloc[A](mutate: Ptr[A] => Any)(using scalanative.unsafe.Tag[A]): Ptr[A] =
+    val a = stackalloc[A]()
+    mutate(a)
+    a
+
+  private def cSocketAddress(host: in_addr, port: uint16_t): Ptr[sockaddr_in] =
+    import scalanative.unsigned.UnsignedRichInt
+    import scala.scalanative.posix.netinet.inOps.*
+    val socket_address = stackalloc[sockaddr_in]()
+    socket_address.sin_family = posix.sys.socket.AF_INET.toUShort
+    socket_address.sin_addr = host
+    socket_address.sin_port = port
+    socket_address
 
   private[socket] val sizeOf: UInt = sizeof[sockaddr_in].toUInt
 
