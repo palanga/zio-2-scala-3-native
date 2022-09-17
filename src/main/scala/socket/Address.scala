@@ -92,27 +92,23 @@ object Address:
   def fromHostAndPort(host: String, port: Int) = ZIO.attemptBlocking {
     Zone { implicit z =>
       import scala.scalanative.posix.arpa.inet.{htons, inet_pton}
-      import scala.scalanative.posix.netinet.inOps.*
       import scalanative.unsigned.UnsignedRichInt
 
-      val socketAddress: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
-      socketAddress.sin_family = posix.sys.socket.AF_INET.toUShort
-      socketAddress.sin_port = htons(port.toUShort)
-
       val cHost = toCString(host)
-      val res = inet_pton(
+      val inAddr: Ptr[in_addr] = stackalloc[in_addr]()
+      val exitCode = inet_pton(
         posix.sys.socket.AF_INET,
         cHost,
-        socketAddress.sin_addr.toPtr.asInstanceOf[Ptr[Byte]],
+        inAddr.asInstanceOf[Ptr[Byte]],
       )
-      if res != 1 then throw Exception("invalid host or port") else ()
+      if exitCode != 1 then throw Exception("invalid host or port") else ()
 
-      Address(socketAddress)
+      Address(cSocketAddress(inAddr, htons(port.toUShort)))
     }
   }.debug
 
 
-  // TODO not tested
+  // TODO not tested and should be in common package
   def withStackAlloc[A](mutate: Ptr[A] => Any)(using scalanative.unsafe.Tag[A]): Ptr[A] =
     val a = stackalloc[A]()
     mutate(a)
