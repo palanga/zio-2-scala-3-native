@@ -404,7 +404,11 @@ object Address:
  * the identity to work. This is because getAddressName will return the name form and not the numeric one.
  */
 def test_getAddressInfo_and_getAddressName_identity(host: String, port: Int) =
-    Address
-      .getAddressInfo(host, port).debug("get address info")
-      .flatMap(Address.getAddressName.tupled).debug("get address name")
-      .map(_ == (host -> port)).debug
+  (for
+    info <- Address.getAddressInfo(host, port).debug
+    name <- Address.getAddressName.tupled(info).debug
+    nameInfoNameIdentityFiber <- Address.getAddressInfo.tupled(name).flatMap(Address.getAddressName.tupled).fork
+    infoNameInfoIdentityFiber <- Address.getAddressName.tupled(info).flatMap(Address.getAddressInfo.tupled).fork
+    nameInfoNameIdentity <- nameInfoNameIdentityFiber.join.debug
+    infoNameInfoIdentity <- infoNameInfoIdentityFiber.join.debug
+  yield nameInfoNameIdentity == name && infoNameInfoIdentity == info).debug
