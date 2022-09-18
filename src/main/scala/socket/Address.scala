@@ -327,29 +327,34 @@ object Address:
       }
     }
 
-  def getAddressName(host: Long, port: Int): (String, Int) = Zone { implicit z =>
-    import scalanative.unsigned.UnsignedRichLong
-    import scalanative.unsigned.UnsignedRichInt
-    import scala.scalanative.posix.netinet.inOps.*
+  def getAddressName(host: Long, port: Int): Task[(String, Int)] = ZIO.attemptBlocking {
+    Zone { implicit z =>
+      import scalanative.unsigned.UnsignedRichLong
+      import scalanative.unsigned.UnsignedRichInt
+      import scala.scalanative.posix.netinet.inOps.*
 
-    val input: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
-    val addr: Ptr[in_addr] = stackalloc[in_addr]()
+      val input: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
+      val addr: Ptr[in_addr] = stackalloc[in_addr]()
 
-    addr._1 = host.toUInt
+      addr._1 = host.toUInt
 
-    input.sin_family = posix.sys.socket.AF_INET.toUShort
-    input.sin_addr = addr
+      input.sin_family = posix.sys.socket.AF_INET.toUShort
+      input.sin_addr = addr
 
-    val printHost = toCString("                ")
+      // TODO use a better buffer
+      val printHost = toCString("                ")
 
-    val exitCode =
-      posix.netdb.getnameinfo(input.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt, printHost, 16.toUShort, null, 0.toUShort, 0)
+      val exitCode =
+        posix.netdb.getnameinfo(input.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt, printHost, 16.toUShort, null, 0.toUShort, 0) // TODO flags doesn't seem to work (tried NUMERICHOST)
 
-    if exitCode != 0
-    then throw Exception("nono")
-    else fromCString(printHost) -> port
+      if exitCode != 0
+      then
+        val errorMessage = scalanative.unsafe.fromCString(posix.netdb.gai_strerror(exitCode))
+        throw Exception(s"Error number <<$exitCode>>: $errorMessage. Input: <<$host>> <<$port>>")
+      else
+        fromCString(printHost) -> port
+    }
   }
-
 
   // TODO not tested and should be in common package
   def withStackAlloc[A](mutate: Ptr[A] => Any)(using scalanative.unsafe.Tag[A]): Ptr[A] =
@@ -401,5 +406,5 @@ object Address:
 def test_getAddressInfo_and_getAddressName_identity(host: String, port: Int) =
     Address
       .getAddressInfo(host, port).debug("get address info")
-      .map(Address.getAddressName.tupled).debug("get address name")
+      .flatMap(Address.getAddressName.tupled).debug("get address name")
       .map(_ == (host -> port)).debug
