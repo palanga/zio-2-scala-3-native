@@ -7,6 +7,13 @@ object Main extends ZIOAppDefault:
   override def run =
     for
       Args(host, port) <- Args.fromCommandLine
+      _                <- socket.test_getAddressInfo_and_getAddressName_identity(host, port)
+    yield ()
+//    ZLayer.scoped(serverApp).launch // TODO esto es al pedo
+
+  private def serverApp: ZIO[ZIOAppArgs & Scope, Throwable, Unit] =
+    for
+      Args(host, port) <- Args.fromCommandLine
       server           <- Server.start(host, port)
       _                <- Console.printLine(s"Listening on $host:$port")
       _                <- ZIO.scoped(server.accept.flatMap(respond)).forever
@@ -21,7 +28,7 @@ object Main extends ZIOAppDefault:
 
 case class Args private (host: String, port: Int)
 object Args:
-  def fromCommandLine: ZIO[ZIOAppArgs, Exception, Args] =
+  def fromCommandLine: ZIO[ZIOAppArgs, Throwable, Args] =
     ZIOAppArgs.getArgs.map(_.toList).flatMap {
       case host :: StringToInt(port) :: _ => ZIO.succeed(Args(host, port))
       case args                           => ZIO.fail(Exception(s"Invalid command line args: <<$args>>."))

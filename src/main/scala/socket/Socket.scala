@@ -13,6 +13,7 @@ class Socket private (fileDescriptor: Int):
       .as(fileDescriptor)
 
   def bind(address: Address) =
+    // TODO set socket option reuse address to kill and restart immediately the app
     common
       .attemptBlocking(posix.sys.socket.bind(fileDescriptor, address.asSocketAddressPointer, Address.sizeOf))
       .unit
@@ -48,5 +49,5 @@ object Socket:
   def open: ZIO[Scope, Throwable, Socket] =
     common
       .attemptBlocking(posix.sys.socket.socket(posix.sys.socket.AF_INET, posix.sys.socket.SOCK_STREAM, 0))
-      .map(Socket(_))
+      .map(Socket(_)).debug("file descriptor opened")
       .withFinalizer(_.close.debug("file descriptor closed").orDie)

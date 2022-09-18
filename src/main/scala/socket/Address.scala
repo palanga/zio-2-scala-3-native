@@ -9,7 +9,7 @@ import scala.scalanative.libc.stdlib
 import scala.scalanative.libc.string.{strerror, strlen}
 import scala.scalanative.posix.inttypes.uint16_t
 import scala.scalanative.posix.netdb.addrinfo
-import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in}
+import scala.scalanative.posix.netinet.in.{in_addr, in_addr_t, sockaddr_in}
 import scala.scalanative.posix.sys.socket
 import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
 import scala.scalanative.unsafe.{CChar, CInt, CString, Ptr, Zone, fromCString, sizeof, stackalloc, toCString}
@@ -271,37 +271,79 @@ object Address:
       import scalanative.posix.netdbOps.*
 
       val cHost = toCString(host)
-//      val inAddr: Ptr[in_addr] = stackalloc[in_addr]()
-//      val exitCode = inet_pton(
-//        posix.sys.socket.AF_INET,
-//        cHost,
-//        inAddr.asInstanceOf[Ptr[Byte]],
-//      )
-//      if exitCode != 1 then throw Exception("invalid host or port") else ()
+      val inAddr: Ptr[in_addr] = stackalloc[in_addr]()
+      val exitCode = inet_pton(
+        posix.sys.socket.AF_INET,
+        cHost,
+        inAddr.asInstanceOf[Ptr[Byte]],
+      )
+      if exitCode != 1 then throw Exception("invalid host or port") else ()
 
 
-      val reses: Ptr[Ptr[addrinfo]] = stackalloc[Ptr[addrinfo]]()
-      posix.netdb.getaddrinfo(cHost, toCString(port.toString), null, reses) // TODO don't forget to free address info
+//      val reses: Ptr[Ptr[addrinfo]] = stackalloc[Ptr[addrinfo]]()
+//      posix.netdb.getaddrinfo(cHost, toCString(port.toString), null, reses) // TODO don't forget to free address info
+//
+//      val res: Ptr[addrinfo] = reses(0)
+//
+//      val printHost = toCString("                ")
+//      val pritnPort = toCString("                ") // TODO me transforma el numero del puerto a un nombre en particular (8080 es http-alt)
+//      posix.netdb.getnameinfo(res.ai_addr, sizeof[sockaddr_in].toUInt, printHost, 16.toUShort, pritnPort, 16.toUShort, 0)
+//
+//      println(s"la direccion al final es: ${fromCString(printHost)}:${fromCString(pritnPort)}")
+//
+//
+//      import scala.scalanative.posix.netinet.inOps.*
+//      res.ai_family = posix.sys.socket.AF_INET
+//      Address(cSocketAddress(res.ai_addr.asInstanceOf[Ptr[sockaddr_in]].sin_addr, htons(port.toUShort))) // TODO me dice address family not supported
 
-      val res: Ptr[addrinfo] = reses(0)
-
-      val printHost = toCString("                ")
-      val pritnPort = toCString("                ") // TODO me transforma el numero del puerto a un nombre en particular (8080 es http-alt)
-      posix.netdb.getnameinfo(res.ai_addr, sizeof[sockaddr_in].toUInt, printHost, 16.toUShort, pritnPort, 16.toUShort, 0)
-
-      println(s"la direccion al final es: ${fromCString(printHost)}:${fromCString(pritnPort)}")
-
-
-      import scala.scalanative.posix.netinet.inOps.*
-      res.ai_family = posix.sys.socket.AF_INET
-      Address(cSocketAddress(res.ai_addr.asInstanceOf[Ptr[sockaddr_in]].sin_addr, htons(port.toUShort))) // TODO me dice address family not supported
-//      Address(cSocketAddress(inAddr, htons(port.toUShort)))
+      Address(cSocketAddress(inAddr, htons(port.toUShort)))
     }
   }.debug
 
-  def getAddressInfo(host: String, port: Int): Task[(Int, Int)] = ???
+  def getAddressInfo(host: String, port: Int): Task[(Long, Int)] = Zone { implicit z =>
+    import scalanative.posix.netdbOps.*
+    import scala.scalanative.posix.netinet.inOps.*
 
-  def getAddressName(host: Int, port: Int): (String, Int) = ???
+    val hint: Ptr[addrinfo] = stackalloc[addrinfo]()
+    val results: Ptr[Ptr[addrinfo]] = stackalloc[Ptr[addrinfo]]()
+
+    hint.ai_family = posix.sys.socket.AF_INET
+    hint.ai_protocol = posix.sys.socket.SOCK_STREAM
+
+    val exitCode =
+      posix.netdb.getaddrinfo(toCString(host), toCString(port.toString), hint, results)
+
+    if exitCode != 0
+    then ZIO.fail(Exception("no"))
+    else ZIO.succeed {
+      val res: Ptr[addrinfo] = results(0)
+      val hostInt: UInt = res.ai_addr.asInstanceOf[Ptr[sockaddr_in]].sin_addr._1
+      hostInt.toLong -> port
+    }
+  }
+
+  def getAddressName(host: Long, port: Int): (String, Int) = Zone { implicit z =>
+    import scalanative.unsigned.UnsignedRichLong
+    import scalanative.unsigned.UnsignedRichInt
+    import scala.scalanative.posix.netinet.inOps.*
+
+    val input: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
+    val addr: Ptr[in_addr] = stackalloc[in_addr]()
+
+    addr._1 = host.toUInt
+
+    input.sin_family = posix.sys.socket.AF_INET.toUShort
+    input.sin_addr = addr
+
+    val printHost = toCString("                ")
+
+    val exitCode =
+      posix.netdb.getnameinfo(input.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt, printHost, 16.toUShort, null, 0.toUShort, 0)
+
+    if exitCode != 0
+    then throw Exception("nono")
+    else fromCString(printHost) -> port
+  }
 
 
   // TODO not tested and should be in common package
@@ -345,3 +387,14 @@ object Address:
     if res < 0 then throw Exception(s"inet_pton error") else ()
 
     Address(socketAddress)
+
+// TODO put on a test module
+/**
+ * If host have a name (like 127.0.0.1 -> localhost), then the name must be provided instead of the numeric form for
+ * the identity to work. This is because getAddressName will return the name form and not the numeric one.
+ */
+def test_getAddressInfo_and_getAddressName_identity(host: String, port: Int) =
+    Address
+      .getAddressInfo(host, port).debug("get address info")
+      .map(Address.getAddressName.tupled).debug("get address name")
+      .map(_ == (host -> port)).debug
