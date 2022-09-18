@@ -8,15 +8,15 @@ object Main extends ZIOAppDefault:
     for
       Args(host, port) <- Args.fromCommandLine
       _                <- socket.test_getAddressInfo_and_getAddressName_identity(host, port)
+      _                <- serverApp(host, port)
     yield ()
 //    ZLayer.scoped(serverApp).launch // TODO esto es al pedo
 
-  private def serverApp: ZIO[ZIOAppArgs & Scope, Throwable, Unit] =
+  private def serverApp(host: String, port: Int): ZIO[Scope, Throwable, Unit] =
     for
-      Args(host, port) <- Args.fromCommandLine
-      server           <- Server.start(host, port)
-      _                <- Console.printLine(s"Listening on $host:$port")
-      _                <- ZIO.scoped(server.accept.flatMap(respond)).forever
+      server <- Server.start(host, port)
+      _      <- Console.printLine(s"Listening on $host:$port")
+      _      <- ZIO.scoped(server.accept.flatMap(respond)).forever
     yield ()
 
   private def respond(client: Socket) =

@@ -300,27 +300,32 @@ object Address:
     }
   }.debug
 
-  def getAddressInfo(host: String, port: Int): Task[(Long, Int)] = Zone { implicit z =>
-    import scalanative.posix.netdbOps.*
-    import scala.scalanative.posix.netinet.inOps.*
+  def getAddressInfo(host: String, port: Int): Task[(Long, Int)] = ZIO.attemptBlocking { Zone { implicit z =>
+      import scalanative.posix.netdbOps.*
+      import scala.scalanative.posix.netinet.inOps.*
 
-    val hint: Ptr[addrinfo] = stackalloc[addrinfo]()
-    val results: Ptr[Ptr[addrinfo]] = stackalloc[Ptr[addrinfo]]()
+      val hint: Ptr[addrinfo] = stackalloc[addrinfo]()
+      val addressInfos: Ptr[Ptr[addrinfo]] = stackalloc[Ptr[addrinfo]]()
 
-    hint.ai_family = posix.sys.socket.AF_INET
-    hint.ai_protocol = posix.sys.socket.SOCK_STREAM
+      hint.ai_family = posix.sys.socket.AF_INET
+      hint.ai_protocol = posix.sys.socket.SOCK_STREAM
 
-    val exitCode =
-      posix.netdb.getaddrinfo(toCString(host), toCString(port.toString), hint, results)
+      val exitCode =
+        posix.netdb.getaddrinfo(toCString(host), toCString(port.toString), hint, addressInfos)
 
-    if exitCode != 0
-    then ZIO.fail(Exception("no"))
-    else ZIO.succeed {
-      val res: Ptr[addrinfo] = results(0)
-      val hostInt: UInt = res.ai_addr.asInstanceOf[Ptr[sockaddr_in]].sin_addr._1
-      hostInt.toLong -> port
+      if exitCode != 0
+      then
+        posix.netdb.freeaddrinfo(addressInfos(0))
+        val errorMessage = scalanative.unsafe.fromCString(posix.netdb.gai_strerror(exitCode))
+        throw Exception(s"Error number <<$exitCode>>: $errorMessage. Input: <<$host>> <<$port>>")
+      else
+        val addressInfo: Ptr[addrinfo] = addressInfos(0)
+        val hostInt: UInt = addressInfo.ai_addr.asInstanceOf[Ptr[sockaddr_in]].sin_addr._1
+        val result = hostInt.toLong -> port
+        posix.netdb.freeaddrinfo(addressInfos(0))
+        result
+      }
     }
-  }
 
   def getAddressName(host: Long, port: Int): (String, Int) = Zone { implicit z =>
     import scalanative.unsigned.UnsignedRichLong
