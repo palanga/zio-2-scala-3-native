@@ -28,11 +28,11 @@ class Address private (host: String, port: Int, hostTranslated: Long, portTransl
 
 object Address:
 
-  def fromHostAndPort(host: String, port: Int): Task[Address] =
-    (for
-      (hostTranslated, portTranslated) <- getAddressInfo(host, port).debug
-      (host, port)                     <- getAddressName(hostTranslated, portTranslated).debug
-    yield Address(host, port, hostTranslated, portTranslated)).debug
+  def fromHostAndPort(host: String, port: Int) =
+    for
+      (hostTranslated, portTranslated) <- getAddressInfo(host, port)
+      (host, port)                     <- getAddressName(hostTranslated, portTranslated)
+    yield Address(host, port, hostTranslated, portTranslated)
 
   private[socket] def getAddressInfo(host: String, port: Int): Task[(Long, Int)] = ZIO.attemptBlocking {
     Zone { implicit z =>
@@ -62,21 +62,19 @@ object Address:
     }
   }
 
-  private[socket] def getAddressName(host: Long, port: Int): Task[(String, Int)] = ZIO.attemptBlocking {
-    Zone { implicit z =>
-      import scalanative.unsigned.UnsignedRichLong
-      import scalanative.unsigned.UnsignedRichInt
-      import scala.scalanative.posix.netinet.inOps.*
+  private def ganame(host: Long, port: Int): ZIO[Scope, Nothing, (String, CInt)] =
+    import scalanative.unsigned.UnsignedRichLong
+    import scalanative.unsigned.UnsignedRichInt
+    import scala.scalanative.posix.netinet.inOps.*
 
-      val input: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
-      val addr: Ptr[in_addr]      = stackalloc[in_addr]()
+    for
+      inAddr <- common.ZAllocate.makeAndMutate[in_addr](_._1 = host.toUInt)
+      input  <- common.ZAllocate.makeAndMutate[sockaddr_in] { ptr =>
+                  ptr.sin_family = posix.sys.socket.AF_INET.toUShort
+                  ptr.sin_addr = inAddr
+                }
+    yield Zone { implicit z =>
 
-      addr._1 = host.toUInt
-
-      input.sin_family = posix.sys.socket.AF_INET.toUShort
-      input.sin_addr = addr
-
-      // TODO use a better buffer
       val printHost = toCString("                ")
 
       val exitCode =
@@ -95,11 +93,60 @@ object Address:
         val errorMessage = scalanative.unsafe.fromCString(posix.netdb.gai_strerror(exitCode))
         throw Exception(s"Error number <<$exitCode>>: $errorMessage. Input: <<$host>> <<$port>>")
       else fromCString(printHost) -> port
+
     }
-  }
+
+  private[socket] def getAddressName(host: Long, port: Int) = ganame(host, port)
+//    ZIO.attemptBlocking {
+//      Zone { implicit z =>
+//        import scalanative.unsigned.UnsignedRichLong
+//        import scalanative.unsigned.UnsignedRichInt
+//        import scala.scalanative.posix.netinet.inOps.*
+//
+////      val input: Ptr[sockaddr_in] = stackalloc[sockaddr_in]()
+//        val addr: Ptr[in_addr] = stackalloc[in_addr]()
+//
+//        addr._1 = host.toUInt
+//
+////      input.sin_family = posix.sys.socket.AF_INET.toUShort
+////      input.sin_addr = addr
+//
+////      val input = withStackAlloc[sockaddr_in] { socketAddress =>
+////        socketAddress.sin_family = posix.sys.socket.AF_INET.toUShort
+////        socketAddress.sin_addr = addr
+////      }
+//
+//        val input = common.Allocated.make[sockaddr_in].mutate { socketAddress =>
+//          socketAddress.sin_family = posix.sys.socket.AF_INET.toUShort
+//          socketAddress.sin_addr = addr
+//        }
+//
+//        // TODO use a better buffer
+//        val printHost = toCString("                ")
+//
+//        val exitCode =
+//          posix.netdb.getnameinfo(
+//            input.get.asInstanceOf[Ptr[sockaddr]],
+//            sizeof[sockaddr_in].toUInt,
+//            printHost,
+//            16.toUShort,
+//            null,
+//            0.toUShort,
+//            0,
+//          ) // TODO flags doesn't seem to work (tried NUMERICHOST)
+//
+//        input.deallocate
+//
+//        if exitCode != 0
+//        then
+//          val errorMessage = scalanative.unsafe.fromCString(posix.netdb.gai_strerror(exitCode))
+//          throw Exception(s"Error number <<$exitCode>>: $errorMessage. Input: <<$host>> <<$port>>")
+//        else fromCString(printHost) -> port
+//      }
+//    }
 
   // TODO not tested and should be in common package
-  def withStackAlloc[A](mutate: Ptr[A] => Any)(using scalanative.unsafe.Tag[A]): Ptr[A] =
+  def withStackAlloc[A](mutate: Ptr[A] => Unit)(using scalanative.unsafe.Tag[A]): Ptr[A] =
     val a = stackalloc[A]()
     mutate(a)
     a
@@ -130,10 +177,10 @@ object Address:
  */
 def test_getAddressInfo_and_getAddressName_identity(host: String, port: Int) =
   (for
-    info                      <- Address.getAddressInfo(host, port).debug
-    name                      <- Address.getAddressName.tupled(info).debug
+    info                      <- Address.getAddressInfo(host, port).debug("get address info")
+    name                      <- Address.getAddressName.tupled(info).debug("get address name")
     nameInfoNameIdentityFiber <- Address.getAddressInfo.tupled(name).flatMap(Address.getAddressName.tupled).fork
     infoNameInfoIdentityFiber <- Address.getAddressName.tupled(info).flatMap(Address.getAddressInfo.tupled).fork
-    nameInfoNameIdentity      <- nameInfoNameIdentityFiber.join.debug
-    infoNameInfoIdentity      <- infoNameInfoIdentityFiber.join.debug
-  yield nameInfoNameIdentity == name && infoNameInfoIdentity == info).debug
+    nameInfoNameIdentity      <- nameInfoNameIdentityFiber.join.debug("name info name identity")
+    infoNameInfoIdentity      <- infoNameInfoIdentityFiber.join.debug("info name info identity")
+  yield nameInfoNameIdentity == name && infoNameInfoIdentity == info).debug("test result")

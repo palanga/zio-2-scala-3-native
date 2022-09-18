@@ -26,7 +26,7 @@ class Socket private (fileDescriptor: Int):
       // TODO dummy ?
       .attemptBlocking(posix.sys.socket.accept(fileDescriptor, Address.dummy.asSocketAddressPointer, Address.sizeOfPtr))
       .map(Socket(_))
-      .withFinalizer(_.close.debug("file descriptor closed").orDie)
+      .withFinalizer(_.close.orDie)
 
   def writeLine(input: String) = write(input + '\n')
 
@@ -49,5 +49,5 @@ object Socket:
   def open: ZIO[Scope, Throwable, Socket] =
     common
       .attemptBlocking(posix.sys.socket.socket(posix.sys.socket.AF_INET, posix.sys.socket.SOCK_STREAM, 0))
-      .map(Socket(_)).debug("file descriptor opened")
-      .withFinalizer(_.close.debug("file descriptor closed").orDie)
+      .map(Socket(_))
+      .withFinalizer(_.close.orDie)

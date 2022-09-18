@@ -7,7 +7,7 @@ object Main extends ZIOAppDefault:
   override def run =
     for
       Args(host, port) <- Args.fromCommandLine
-      _                <- socket.test_getAddressInfo_and_getAddressName_identity(host, port)
+//      _                <- socket.test_getAddressInfo_and_getAddressName_identity(host, port)
       _                <- serverApp(host, port)
     yield ()
 //    ZLayer.scoped(serverApp).launch // TODO esto es al pedo
@@ -16,7 +16,7 @@ object Main extends ZIOAppDefault:
     for
       server <- Server.start(host, port)
       _      <- Console.printLine(s"Listening on $host:$port")
-      _      <- ZIO.scoped(server.accept.flatMap(respond)).forever
+      _      <- ZIO.scoped(server.accept.flatMap(respond)).forever.timeout(10.seconds)
     yield ()
 
   private def respond(client: Socket) =
